@@ -14,14 +14,13 @@ export default function Login() {
   const { register, handleSubmit, formState: { isSubmitting } } = useForm();
 
   const onSubmit = async (data) => {
-    setServerError('');
-    try {
-      await login(data);
-      navigate(from, { replace: true });
-    } catch (err) {
-      setServerError(err.response?.data?.message || 'Login failed');
-    }
-  };
+  try {
+    await authApi.register(data);
+    setSent(true);
+  } catch (err) {
+    setServerError(err.response?.data?.message || 'Failed');
+  }
+};
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
@@ -36,12 +35,8 @@ export default function Login() {
             <label className="block text-sm font-medium mb-1">Email</label>
             <input {...register('email')} type="email" className="input-field" placeholder="you@sliet.ac.in" />
           </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Password</label>
-            <input {...register('password')} type="password" className="input-field" placeholder="••••••••" />
-          </div>
           <button type="submit" disabled={isSubmitting} className="btn-primary w-full">
-            {isSubmitting ? 'Signing in...' : 'Sign In'}
+            {isSubmitting ? 'Sending...' : 'Send Login Link'}
           </button>
         </form>
         <p className="text-center text-sm text-gray-500 mt-4">
