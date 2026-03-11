@@ -1,31 +1,27 @@
 import { useForm } from 'react-hook-form';
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext.jsx';
 import { authApi } from '../services/api.js';
 
 export default function Login() {
+  const { loginWithTokens } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const from = location.state?.from?.pathname || '/dashboard';
   const [serverError, setServerError] = useState('');
-  const [sent, setSent] = useState(false);
   const { register, handleSubmit, formState: { isSubmitting } } = useForm();
 
   const onSubmit = async (data) => {
-  try {
-    setServerError('');
-    await authApi.magicLink({ email: data.email });
-    setSent(true);
-  } catch (err) {
-    setServerError(err.response?.data?.message || 'No account found');
-  }
-};
-
-  if (sent) return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <div className="card max-w-md w-full text-center">
-        <h2 className="text-2xl font-bold mb-2">Check your email 📬</h2>
-        <p className="text-gray-500">We sent a login link to your SLIET email.</p>
-      </div>
-    </div>
-  );
+    try {
+      setServerError('');
+      const res = await authApi.login({ email: data.email, password: data.password });
+      loginWithTokens(res.data.accessToken, res.data.refreshToken, res.data.user);
+      navigate(from, { replace: true });
+    } catch (err) {
+      setServerError(err.response?.data?.message || 'Invalid credentials');
+    }
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
@@ -38,8 +34,12 @@ export default function Login() {
             <label className="block text-sm font-medium mb-1">Email</label>
             <input {...register('email')} type="email" className="input-field" placeholder="you@sliet.ac.in" />
           </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Password</label>
+            <input {...register('password')} type="password" className="input-field" placeholder="••••••••" />
+          </div>
           <button type="submit" disabled={isSubmitting} className="btn-primary w-full">
-            {isSubmitting ? 'Sending...' : 'Send Login Link'}
+            {isSubmitting ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
         <p className="text-center text-sm text-gray-500 mt-4">
