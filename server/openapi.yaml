@@ -1,0 +1,686 @@
+openapi: 3.0.3
+info:
+  title: SLIET RideShare API
+  description: |
+    Student-only ridesharing platform for SLIET campus.
+    All endpoints are prefixed with `/api/v1`.
+    Authentication uses Bearer JWT tokens.
+  version: 1.0.0
+  contact:
+    name: SLIET RideShare
+
+servers:
+  - url: http://localhost:5000/api/v1
+    description: Local development
+  - url: https://your-app.onrender.com/api/v1
+    description: Production
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      properties:
+        _id:          { type: string, example: "6423f1..." }
+        name:         { type: string, example: "Aman Sharma" }
+        email:        { type: string, example: "aman@sliet.ac.in" }
+        emailVerified:{ type: boolean }
+        collegeId:    { type: string, example: "BE21001" }
+        contactNo:    { type: string, example: "9111111111", description: "Masked for non-members" }
+        hostelNo:     { type: string, example: "H-1" }
+        avatarUrl:    { type: string }
+        role:         { type: string, enum: [student, admin] }
+        createdAt:    { type: string, format: date-time }
+
+    Group:
+      type: object
+      properties:
+        _id:          { type: string }
+        creatorId:    { $ref: '#/components/schemas/User' }
+        title:        { type: string, example: "Sangrur 9pm - 4 seats" }
+        description:  { type: string }
+        origin:       { type: string, example: "SLIET Main Gate" }
+        destination:  { type: string, example: "Sangrur Bus Stand" }
+        date:         { type: string, format: date, example: "2025-03-12" }
+        time:         { type: string, example: "21:00" }
+        seatsTotal:   { type: integer, example: 4 }
+        seatsTaken:   { type: integer, example: 2 }
+        seatsRemaining: { type: integer, example: 2 }
+        seatPrice:    { type: number, example: 50 }
+        status:       { type: string, enum: [open, confirmed, cancelled, completed] }
+        meetingPoint: { type: string }
+        vehicleInfo:  { type: string, description: "Set when confirmed" }
+        createdAt:    { type: string, format: date-time }
+
+    Membership:
+      type: object
+      properties:
+        id:       { type: string }
+        groupId:  { type: string }
+        userId:   { type: string }
+        status:   { type: string, enum: [joined, left, rejected, pending] }
+        isCreator:{ type: boolean }
+        joinedAt: { type: string, format: date-time }
+        leftAt:   { type: string, format: date-time }
+
+    Notification:
+      type: object
+      properties:
+        _id:       { type: string }
+        userId:    { type: string }
+        type:      { type: string, enum: [group_invite, member_joined, group_confirmed, message, admin, group_cancelled, member_left] }
+        payload:   { type: object }
+        read:      { type: boolean }
+        createdAt: { type: string, format: date-time }
+
+    ChatMessage:
+      type: object
+      properties:
+        _id:       { type: string }
+        groupId:   { type: string }
+        userId:    { $ref: '#/components/schemas/User' }
+        text:      { type: string }
+        createdAt: { type: string, format: date-time }
+
+    Error:
+      type: object
+      properties:
+        errorCode: { type: string, example: "VALIDATION_ERROR" }
+        message:   { type: string, example: "Input validation failed" }
+        errors:    { type: array, items: { type: object, properties: { field: { type: string }, message: { type: string } } } }
+
+paths:
+  # ── AUTH ─────────────────────────────────────────────────────────────────────
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register with college email
+      description: Rate limited to 10/15min per IP. Sends magic link to email.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email]
+              properties:
+                name:  { type: string, example: "Aman Sharma" }
+                email: { type: string, example: "aman@sliet.ac.in" }
+      responses:
+        '201': { description: "Verification email sent", content: { application/json: { schema: { type: object, properties: { ok: { type: boolean }, message: { type: string } } } } } }
+        '409': { description: "Email already registered" }
+        '422': { description: "Validation error", content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /auth/verify-email:
+    post:
+      tags: [Auth]
+      summary: Verify email with magic link token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, token]
+              properties:
+                email: { type: string }
+                token: { type: string }
+      responses:
+        '200':
+          description: Email verified, tokens returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken:  { type: string }
+                  refreshToken: { type: string }
+                  user: { $ref: '#/components/schemas/User' }
+        '400': { description: "Invalid or expired token" }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with password or magic link token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:    { type: string }
+                password: { type: string, description: "Required if not using token" }
+                token:    { type: string, description: "Magic link token (alternative to password)" }
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken:  { type: string }
+                  refreshToken: { type: string }
+                  user: { $ref: '#/components/schemas/User' }
+        '401': { description: "Invalid credentials" }
+        '403': { description: "Email not verified or account suspended" }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Rotate refresh token
+      description: Returns new access + refresh token pair. Old refresh token is invalidated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200':
+          description: New tokens
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken:  { type: string }
+                  refreshToken: { type: string }
+        '401': { description: "Token invalid or not found" }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout (invalidate refresh token)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200': { description: "Logged out" }
+
+  # ── USERS ────────────────────────────────────────────────────────────────────
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Get own profile
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200': { description: "User profile", content: { application/json: { schema: { $ref: '#/components/schemas/User' } } } }
+    put:
+      tags: [Users]
+      summary: Update own profile
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:      { type: string }
+                contactNo: { type: string }
+                hostelNo:  { type: string }
+                collegeId: { type: string, description: "Only settable if not previously set" }
+                avatarUrl: { type: string }
+      responses:
+        '200': { description: "Updated user" }
+
+  /users/{id}:
+    get:
+      tags: [Users]
+      summary: Get public profile of a user
+      description: contactNo only revealed if viewer shares a group with this user.
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: "User profile" }
+        '404': { description: "User not found" }
+
+  # ── GROUPS ───────────────────────────────────────────────────────────────────
+  /groups:
+    get:
+      tags: [Groups]
+      summary: List / search groups
+      parameters:
+        - name: date         
+          in: query
+          schema: { type: string, format: date }
+        - name: origin
+          in: query
+          schema: { type: string }
+        - name: destination
+          in: query
+          schema: { type: string }
+        - name: seatsMin
+          in: query
+          schema: { type: integer }
+        - name: status
+          in: query
+          schema: { type: string, enum: [open, confirmed, cancelled, completed] }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Paginated list of groups
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groups:     { type: array, items: { $ref: '#/components/schemas/Group' } }
+                  total:      { type: integer }
+                  page:       { type: integer }
+                  totalPages: { type: integer }
+
+    post:
+      tags: [Groups]
+      summary: Create a ride group
+      description: Requires auth + verified email + complete profile. Rate limited to 3/day per user.
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, origin, destination, date, time, seatsTotal]
+              properties:
+                title:        { type: string, example: "Sangrur 9pm - 4 seats" }
+                description:  { type: string }
+                origin:       { type: string, example: "SLIET Main Gate" }
+                destination:  { type: string, example: "Sangrur Bus Stand" }
+                date:         { type: string, format: date, example: "2025-03-12" }
+                time:         { type: string, example: "21:00" }
+                seatsTotal:   { type: integer, minimum: 1, maximum: 10 }
+                meetingPoint: { type: string, example: "Near Gate #2" }
+                seatPrice:    { type: number }
+            example:
+              title: "Sangrur 9pm - 4 seats"
+              description: "Students going to Sangrur train at 23:15 — share auto"
+              origin: "SLIET Main Gate"
+              destination: "Sangrur Bus Stand"
+              date: "2025-03-12"
+              time: "21:00"
+              seatsTotal: 4
+              meetingPoint: "Near Gate #2"
+      responses:
+        '201': { description: "Group created", content: { application/json: { schema: { $ref: '#/components/schemas/Group' } } } }
+        '403': { description: "Profile incomplete or email not verified" }
+        '422': { description: "Validation error" }
+
+  /groups/{id}:
+    get:
+      tags: [Groups]
+      summary: Get group details including members
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Group with members list (contactNo masked for non-members)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: '#/components/schemas/Group' }
+                  - type: object
+                    properties:
+                      members:         { type: array, items: { $ref: '#/components/schemas/User' } }
+                      viewerIsMember:  { type: boolean }
+
+    put:
+      tags: [Groups]
+      summary: Update group (creator or admin only)
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:        { type: string }
+                description:  { type: string }
+                meetingPoint: { type: string }
+                seatsTotal:   { type: integer, description: "Cannot be lower than seatsTaken" }
+      responses:
+        '200': { description: "Updated group" }
+        '400': { description: "seatsTotal < seatsTaken" }
+        '403': { description: "Not creator or admin" }
+
+    delete:
+      tags: [Groups]
+      summary: Cancel group (creator or admin only)
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: "Group cancelled" }
+
+  /groups/{id}/join:
+    post:
+      tags: [Groups]
+      summary: Join a group (atomic seat enforcement)
+      description: Uses MongoDB transaction to atomically claim a seat. Concurrent requests are safe.
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Joined successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:         { type: boolean }
+                  membership: { $ref: '#/components/schemas/Membership' }
+              example:
+                ok: true
+                membership:
+                  id: "6423a5..."
+                  groupId: "6423b2..."
+                  userId: "6419f1..."
+                  status: "joined"
+                  joinedAt: "2025-03-12T15:30:00Z"
+        '409': { description: "No seats available, group not open, or already joined" }
+
+  /groups/{id}/leave:
+    post:
+      tags: [Groups]
+      summary: Leave a group
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: "Left group" }
+        '400': { description: "Creator cannot leave" }
+        '404': { description: "Not a member" }
+
+  /groups/{id}/confirm:
+    post:
+      tags: [Groups]
+      summary: Confirm booking (creator only)
+      description: Sets status to confirmed, saves vehicleInfo, notifies all members via socket + email.
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                vehicleInfo:  { type: string, example: "Maruti Alto WB-1234, driver: Ram" }
+                meetingPoint: { type: string }
+      responses:
+        '200': { description: "Group confirmed" }
+        '403': { description: "Not creator" }
+
+  /groups/{id}/members:
+    get:
+      tags: [Groups]
+      summary: Get member list (contactNo masked for non-members)
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Member list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  members: { type: array, items: { $ref: '#/components/schemas/User' } }
+
+  /groups/{id}/kick:
+    post:
+      tags: [Groups]
+      summary: Remove a member (creator or admin)
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId: { type: string }
+      responses:
+        '200': { description: "Member removed" }
+
+  /groups/{id}/messages:
+    get:
+      tags: [Chat]
+      summary: Get last messages in group chat
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+      responses:
+        '200':
+          description: Messages list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages: { type: array, items: { $ref: '#/components/schemas/ChatMessage' } }
+
+    post:
+      tags: [Chat]
+      summary: Send a message (members only)
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string, maxLength: 1000 }
+      responses:
+        '201': { description: "Message sent and broadcast via socket" }
+        '403': { description: "Not a member" }
+
+  # ── NOTIFICATIONS ─────────────────────────────────────────────────────────────
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: Get notifications for current user
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Notifications
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  notifications: { type: array, items: { $ref: '#/components/schemas/Notification' } }
+                  total:         { type: integer }
+                  unreadCount:   { type: integer }
+
+  /notifications/mark-read:
+    post:
+      tags: [Notifications]
+      summary: Mark notifications as read
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids: { type: array, items: { type: string }, description: "Omit to mark all as read" }
+      responses:
+        '200': { description: "Marked as read" }
+
+  # ── ADMIN ─────────────────────────────────────────────────────────────────────
+  /admin/stats:
+    get:
+      tags: [Admin]
+      summary: Get platform statistics
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: Stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:           { type: integer }
+                  groups:          { type: integer }
+                  activeGroups:    { type: integer }
+                  confirmedGroups: { type: integer }
+
+  /admin/users:
+    get:
+      tags: [Admin]
+      summary: Search users
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+      responses:
+        '200': { description: "User list" }
+
+  /admin/suspend-user/{id}:
+    post:
+      tags: [Admin]
+      summary: Suspend or unsuspend a user
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                suspended: { type: boolean, default: true }
+                reason:    { type: string }
+      responses:
+        '200': { description: "User suspension updated" }
+
+  /admin/suspend-group/{id}:
+    post:
+      tags: [Admin]
+      summary: Cancel/suspend a group
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+      responses:
+        '200': { description: "Group cancelled" }
+
+  /admin/audit-logs:
+    get:
+      tags: [Admin]
+      summary: Get admin audit logs
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+      responses:
+        '200': { description: "Audit log entries" }
+
+tags:
+  - name: Auth
+    description: Registration, login, token management
+  - name: Users
+    description: User profile management
+  - name: Groups
+    description: Ride group CRUD, join/leave/confirm
+  - name: Chat
+    description: In-group messaging
+  - name: Notifications
+    description: User notifications
+  - name: Admin
+    description: Admin moderation tools (role=admin required)

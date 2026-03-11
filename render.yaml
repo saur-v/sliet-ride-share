@@ -1,0 +1,64 @@
+# render.yaml
+# Deploy both server and client to Render.com
+# Push this file to your repo root and connect on render.com/dashboard
+
+services:
+  # ── Backend API ──────────────────────────────────────────────────────────────
+  - type: web
+    name: sliet-rideshare-api
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: MONGO_URI
+        sync: false          # set manually in Render dashboard
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: COOKIE_SECRET
+        generateValue: true
+      - key: COLLEGE_EMAIL_DOMAIN
+        value: sliet.ac.in
+      - key: FRONTEND_URL
+        sync: false          # set to your Render static site URL
+      - key: EMAIL_PROVIDER
+        value: smtp
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: GROUP_CREATION_LIMIT_PER_DAY
+        value: 3
+      - key: EXPIRY_SOON_HOURS
+        value: 2
+      - key: TZ
+        value: Asia/Kolkata
+
+  # ── Frontend Static Site ──────────────────────────────────────────────────
+  - type: web
+    name: sliet-rideshare-client
+    runtime: static
+    rootDir: client
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        sync: false          # set to your backend Render URL
+      - key: VITE_SOCKET_URL
+        sync: false
+      - key: VITE_COLLEGE_DOMAIN
+        value: sliet.ac.in
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html   # SPA fallback

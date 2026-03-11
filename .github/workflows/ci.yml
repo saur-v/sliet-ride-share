@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-server:
+    name: Server Tests
+    runs-on: ubuntu-latest
+    services:
+      mongodb:
+        image: mongo:7
+        ports: ['27017:27017']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: npm, cache-dependency-path: server/package-lock.json }
+      - run: cd server && npm ci
+      - run: cd server && npm test
+        env:
+          NODE_ENV: test
+          MONGO_URI: mongodb://localhost:27017/sliet-ci-test
+          JWT_SECRET: ci_jwt_secret_at_least_32_characters_long
+          JWT_REFRESH_SECRET: ci_refresh_secret_32_chars_minimum
+          COLLEGE_EMAIL_DOMAIN: sliet.ac.in
+          FRONTEND_URL: http://localhost:5173
+          SMTP_HOST: smtp.example.com
+          SMTP_USER: test@example.com
+          SMTP_PASS: testpass
+
+  build-client:
+    name: Client Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: npm, cache-dependency-path: client/package-lock.json }
+      - run: cd client && npm ci
+      - run: cd client && npm run build
+        env:
+          VITE_API_URL: http://localhost:5000
+          VITE_SOCKET_URL: http://localhost:5000
+          VITE_COLLEGE_DOMAIN: sliet.ac.in
+
+  e2e:
+    name: Cypress E2E
+    runs-on: ubuntu-latest
+    needs: [test-server, build-client]
+    if: github.ref == 'refs/heads/main'
+    services:
+      mongodb:
+        image: mongo:7
+        ports: ['27017:27017']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: cd server && npm ci
+      - run: cd server && npm run seed
+        env:
+          MONGO_URI: mongodb://localhost:27017/sliet-e2e
+          COLLEGE_EMAIL_DOMAIN: sliet.ac.in
+          FRONTEND_URL: http://localhost:5173
+      - run: cd server && npm start &
+        env:
+          NODE_ENV: test
+          PORT: 5000
+          MONGO_URI: mongodb://localhost:27017/sliet-e2e
+          JWT_SECRET: e2e_jwt_secret_minimum_32_characters_ok
+          JWT_REFRESH_SECRET: e2e_refresh_secret_32_chars_minimum
+          COLLEGE_EMAIL_DOMAIN: sliet.ac.in
+          FRONTEND_URL: http://localhost:5173
+      - run: cd client && npm ci
+      - uses: cypress-io/github-action@v6
+        with:
+          working-directory: client
+          start: npm run dev
+          wait-on: http://localhost:5173
+        env:
+          VITE_API_URL: http://localhost:5000
+          VITE_SOCKET_URL: http://localhost:5000
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: cypress-screenshots
+          path: client/cypress/screenshots
+
+  deploy:
+    name: Deploy to Render
+    runs-on: ubuntu-latest
+    needs: [test-server, build-client]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - run: curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_SERVER }}"
+      - run: curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_CLIENT }}"
