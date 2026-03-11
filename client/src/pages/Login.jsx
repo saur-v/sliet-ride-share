@@ -1,35 +1,38 @@
-// client/src/pages/Login.jsx
 import { useForm } from 'react-hook-form';
 import { useState } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext.jsx';
+import { Link } from 'react-router-dom';
+import { authApi } from '../services/api.js';
 
 export default function Login() {
-  const { login } = useAuth();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const from = location.state?.from?.pathname || '/dashboard';
-
   const [serverError, setServerError] = useState('');
+  const [sent, setSent] = useState(false);
   const { register, handleSubmit, formState: { isSubmitting } } = useForm();
 
   const onSubmit = async (data) => {
-  try {
-    await authApi.register(data);
-    setSent(true);
-  } catch (err) {
-    setServerError(err.response?.data?.message || 'Failed');
-  }
-};
+    try {
+      setServerError('');
+      await authApi.register({ name: 'User', email: data.email });
+      setSent(true);
+    } catch (err) {
+      setServerError(err.response?.data?.message || 'Failed');
+    }
+  };
+
+  if (sent) return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      <div className="card max-w-md w-full text-center">
+        <h2 className="text-2xl font-bold mb-2">Check your email 📬</h2>
+        <p className="text-gray-500">We sent a login link to your SLIET email.</p>
+      </div>
+    </div>
+  );
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="card max-w-md w-full">
         <h1 className="text-2xl font-bold mb-1">Sign in</h1>
         <p className="text-gray-500 text-sm mb-6">SLIET RideShare</p>
-
         {serverError && <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 mb-4 text-sm">{serverError}</div>}
-
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1">Email</label>
