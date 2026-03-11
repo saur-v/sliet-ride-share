@@ -6,6 +6,9 @@ import {
   registerValidation, verifyEmailValidation,
   loginValidation, refreshValidation, handleValidation,
 } from '../middleware/validation.js';
+import User from '../models/User.js';
+import { generateVerifyToken } from '../utils/tokens.js';
+import { sendVerificationEmail } from '../services/mailer.js';
 
 const router = express.Router();
 
