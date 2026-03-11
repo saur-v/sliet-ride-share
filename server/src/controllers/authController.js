@@ -16,7 +16,7 @@ import logger from '../utils/logger.js';
 // POST /api/v1/auth/register
 // Creates an unverified user and sends a magic-link email.
 export const register = async (req, res) => {
-  const { name, email } = req.body;
+  const { name, email, password } = req.body;
 
   try {
     // Check for existing account
@@ -34,12 +34,13 @@ export const register = async (req, res) => {
       await existing.save();
     } else {
       await User.create({
-        name,
-        email,
-        emailVerified:     false,
-        verifyToken:       token,
-        verifyTokenExpiry: expiry,
-      });
+      name,
+      email,
+      passwordHash:      password ? await bcrypt.hash(password, 12) : undefined,
+      emailVerified:     false,
+      verifyToken:       token,
+      verifyTokenExpiry: expiry,
+    });
     }
 
     await sendVerificationEmail(email, token);
