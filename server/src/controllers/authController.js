@@ -19,7 +19,6 @@ export const register = async (req, res) => {
   const { name, email, password } = req.body;
 
   try {
-    // Check for existing account
     const existing = await User.findOne({ email });
     if (existing && existing.emailVerified)
       return res.status(409).json({ errorCode: 'EMAIL_TAKEN', message: 'Email already registered' });
@@ -32,21 +31,19 @@ export const register = async (req, res) => {
       existing.verifyToken       = token;
       existing.verifyTokenExpiry = expiry;
       await existing.save();
-    }
     } else {
       await User.create({
-      name,
-      email,
-      passwordHash:      password ? await bcrypt.hash(password, 12) : undefined,
-      emailVerified:     false,
-      verifyToken:       token,
-      verifyTokenExpiry: expiry,
-    });
+        name,
+        email,
+        passwordHash:      password ? await bcrypt.hash(password, 12) : undefined,
+        emailVerified:     false,
+        verifyToken:       token,
+        verifyTokenExpiry: expiry,
+      });
     }
 
     await sendVerificationEmail(email, token);
     logger.info(`Verification email sent to ${email}`);
-
     res.status(201).json({ ok: true, message: 'Verification email sent. Check your inbox.' });
   } catch (err) {
     logger.error(`Register error: ${err.message}`);
