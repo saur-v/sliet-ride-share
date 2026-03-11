@@ -27,11 +27,12 @@ export const register = async (req, res) => {
     const { token, expiry } = generateVerifyToken();
 
     if (existing) {
-      // Resend verification to existing unverified account
       existing.name = name;
+      if (password) existing.passwordHash = await bcrypt.hash(password, 12);
       existing.verifyToken       = token;
       existing.verifyTokenExpiry = expiry;
       await existing.save();
+    }
     } else {
       await User.create({
       name,
