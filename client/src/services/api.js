@@ -93,6 +93,7 @@ export const authApi = {
   verifyEmail: (data) => api.post('/auth/verify-email', data),
   login:       (data) => api.post('/auth/login', data),
   logout:      (data) => api.post('/auth/logout', data),
+  magicLink: (data) => api.post('/auth/magic-link', data),
 };
 
 // ── User endpoints ────────────────────────────────────────────────────────────
