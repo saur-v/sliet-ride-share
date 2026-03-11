@@ -14,5 +14,22 @@ router.post('/verify-email', authLimiter, verifyEmailValidation, handleValidatio
 router.post('/login',        authLimiter, loginValidation,       handleValidation, login);
 router.post('/refresh',                  refreshValidation,      handleValidation, refresh);
 router.post('/logout',                   logout);
+router.post('/magic-link', authLimiter, async (req, res, next) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: 'No account found with this email' });
+    
+    const { token, expiry } = generateVerifyToken();
+    user.verifyToken = token;
+    user.verifyTokenExpiry = expiry;
+    await user.save();
+    
+    await sendVerificationEmail(email, token);
+    res.json({ ok: true, message: 'Login link sent to your email' });
+  } catch (err) {
+    next(err);
+  }
+});
 
 export default router;
