@@ -4,6 +4,8 @@
 
 import dotenv from 'dotenv';
 dotenv.config();
+console.log('EMAIL_PROVIDER raw:', process.env.EMAIL_PROVIDER);
+console.log('SENDGRID_KEY set:', !!process.env.SENDGRID_API_KEY);
 
 const required = (key) => {
   if (!process.env[key]) throw new Error(`Missing required env var: ${key}`);
