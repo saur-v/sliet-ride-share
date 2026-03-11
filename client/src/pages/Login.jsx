@@ -9,14 +9,14 @@ export default function Login() {
   const { register, handleSubmit, formState: { isSubmitting } } = useForm();
 
   const onSubmit = async (data) => {
-    try {
-      setServerError('');
-      await authApi.register({ name: 'User', email: data.email });
-      setSent(true);
-    } catch (err) {
-      setServerError(err.response?.data?.message || 'Failed');
-    }
-  };
+  try {
+    setServerError('');
+    await authApi.magicLink({ email: data.email });
+    setSent(true);
+  } catch (err) {
+    setServerError(err.response?.data?.message || 'No account found');
+  }
+};
 
   if (sent) return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
